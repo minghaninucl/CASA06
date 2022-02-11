@@ -1,0 +1,121 @@
+---
+title: "Met_Office_API"
+author: "Kitkanok"
+date: "12/2/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Met Office API
+
+###Import library
+```{r}
+library(httr)
+library(jsonlite)
+library(tidyverse)
+library(lubridate)
+```
+
+##Retriving the site list
+###In the code below we retrieve the site list and convert the response into a data frame.
+###Note that my API_KEY is hidden - it is available as an environment variable in a special file called .Renviron. You can read more about setting up your R environment variables here. You can replace the Sys.getnv(...) code with your API key (as a string), but you should be careful not to upload this to Github!
+```{r}
+# Your API key goes here! I am hiding mine :) 
+#API_KEY <- Sys.getenv('MET_API_KEY')
+API_KEY<- "f..." #put your API here
+# Getting site list
+url <- sprintf('http://datapoint.metoffice.gov.uk/public/data/val/wxfcs/all/json/sitelist?key=%s', API_KEY)
+
+r <- GET(url)
+sitelist <- fromJSON(content(r, 'text')) 
+```
+
+```{r}
+prettify(content(r,'text'))
+```
+
+```{r}
+sitelist <- sitelist$Locations$Location %>% tibble()
+```
+
+###We’ll now retrieve the Land’s End location ID.
+```{r}
+# Land's End
+sitelist %>% filter(name == "Land's End")
+```
+
+##Retriving the Forecast
+```{r}
+location_id <- '352205' #this ID is from the result of the previous chunk 
+
+url <- sprintf('http://datapoint.metoffice.gov.uk/public/data/val/wxfcs/all/json/%s?res=3hourly&key=%s', location_id, API_KEY)
+
+r <- GET(url)
+r$status_code
+prettify(content(r,'text'))
+
+data <- fromJSON(content(r, 'text'))
+```
+
+##### Tip to look the detail of JSON (easier way) => save to txt file :)
+```{r}
+x <- prettify(content(r,'text'))
+write_file(x,'foo.json')
+```
+
+###The Wx component of the response describes each of the parameters:
+```{r}
+data$SiteRep$Wx$Param
+```
+###The forecast is found in the DV component. data$SiteRep$DV$Location$Period$Rep is a list of 5 data frames, each giving the forecast for the 5 days. Each data frame has 8 rows: the number of 3hr intervals in a day.
+
+###The following code runs a for loop over the data frames to retrieve the forecast.
+
+
+```{r}
+# Create an empty vector to store the results
+forecast <- numeric()#create empty vector
+for (df in data$SiteRep$DV$Location$Period$Rep){
+  forecast <- c(forecast, as.integer(df$S))
+}
+```
+
+
+```{r}
+qplot(1:length(forecast), forecast, geom = 'line') + 
+  labs(x = "Horizon (3hr intervals)",
+       y = "Wind Speed (mph)")
+```
+
+##Retrieving the Feels Like Temperature (F) for tomorrow at midday
+###An additional query parameter can be added to the URL specifiying a time if we just want the forecast for one period. The code below uses this request to get the Feels Like Temperature (F) for tomorrow at midday. Note: the forecasts are only available at 3 hour intervals, so forecasts only exist for 0, 3, 6,…, 21h. It is not possible to retrieve a forecast for 1am!
+
+###First, we must define the time we want to request for: we will use lubridate period functions (days() and hours()) for this:
+```{r}
+# Specify time to get forecast and convert to ISO 8601 format (lubridate)
+time <- (today() + days(1) + hours(12)) %>% # Time tomorrow at midday
+  format_ISO8601() 
+```
+
+###Now we will make the request, parse the data and print the results
+```{r}
+# Specify location ID 
+location_id <- '352205'
+
+# Putting together the URL
+url <- sprintf('http://datapoint.metoffice.gov.uk/public/data/val/wxfcs/all/json/%s?res=3hourly&time=%s&key=%s', location_id, time, API_KEY)
+
+# Making the request and parsing
+r <- GET(url)
+data <- fromJSON(content(r, 'text'))
+```
+
+```{r}
+# Retrieve the Feels Like Temperature
+feels_like_temp <- data$SiteRep$DV$Location$Period$Rep$F
+print(sprintf("The feels like temperature at 12:00 tomorrow will be: %sC", feels_like_temp))
+```
+
