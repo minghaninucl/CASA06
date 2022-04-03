@@ -1,1 +1,2 @@
 NEED.csv filter=lfs diff=lfs merge=lfs -text
+Coursework filter=lfs diff=lfs merge=lfs -text
